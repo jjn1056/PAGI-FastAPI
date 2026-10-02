@@ -12,7 +12,7 @@ use Future;
 use JSON::PP qw(encode_json decode_json);
 use Scalar::Util qw(blessed);
 use PAGI::App::URLMap;
-use PAGI::Response qw(text_response);
+use PAGI::Response qw(response);
 use PAGI::WebSocket;
 use PAGI::Middleware::CORS;
 use PAGI::FastAPI::Context;
@@ -100,10 +100,13 @@ class PAGI::FastAPI {
         my $csrf_secret = delete $opts{secret} // $secret
             // die "CSRF middleware requires 'secret' option";
 
+        # A failed check answers in FastAPI's error shape, {"detail": ...},
+        # rather than the middleware's plain-text default.
         my $mw = PAGI::Middleware::CSRF->new(
             secret  => $csrf_secret,
-            enforce => 'header',
             secure  => 0,
+            invalid => response('JSON',
+                { detail => 'CSRF token validation failed' }, status => 403),
             %opts,
         );
 
@@ -653,7 +656,7 @@ class PAGI::FastAPI {
     # websocket.close there). After accept it is closed with a close code.
     async method _end_websocket ($ws, $status, $close_code, $reason) {
         if ($ws->connection_state eq 'connecting') {
-            await $ws->deny(text_response($reason, status => $status));
+            await $ws->deny(response('Text', $reason, status => $status));
         }
         elsif (!$ws->is_closed) {
             await $ws->close($close_code, $reason);
@@ -1263,8 +1266,13 @@ B<Example Usage:>
 Enables Cross-Site Request Forgery (CSRF) protection on the application by
 instantiating and attaching L<PAGI::Middleware::CSRF>.
 
-By default, the middleware is configured with C<enforce =E<gt> 'header'> and
-C<secure =E<gt> 0>. Any passed C<%options> override these defaults.
+By default, an unsafe request without an C<X-CSRF-Token> header matching the
+C<csrf_token> cookie is refused with C<403> and the JSON body
+C<{"detail": "CSRF token validation failed"}>, FastAPI's error shape, and the
+cookie is set with C<secure =E<gt> 0>. Any passed C<%options> override these
+defaults: C<invalid> replaces the refusal with any PAGI application, and
+C<invalid =E<gt> 0> lets every request through for the handler to check (see
+L<PAGI::Middleware::CSRF>).
 
 =over 4
 

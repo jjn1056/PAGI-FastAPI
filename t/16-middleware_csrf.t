@@ -52,4 +52,14 @@ subtest 'POST /submit with valid CSRF Cookie and Header succeeds' => sub {
     is($post_res->json->{status}, 'ok', 'Response body matches JSON');
 };
 
+subtest 'POST /submit with a wrong token gets FastAPI-style JSON' => sub {
+    my $c = PAGI::Test::Client->new(app => $app->to_pagi);
+    $c->get('/form');
+    my $res = $c->post('/submit', headers => { 'x-csrf-token' => 'wrong' });
+    is($res->status, 403, 'Fails with 403 Forbidden');
+    like($res->header('content-type'), qr{\Aapplication/json}, 'as JSON');
+    is_deeply($res->json, { detail => 'CSRF token validation failed' },
+        'with the detail shape FastAPI errors use');
+};
+
 done_testing;
