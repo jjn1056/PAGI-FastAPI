@@ -9,7 +9,7 @@ use Future::AsyncAwait;
 my $app    = PAGI::FastAPI->new;
 my $SECRET = 'test-csrf-secret-12345';
 
-$app->add_middleware('PAGI::Middleware::Session', secret => $SECRET);
+$app->add_middleware('PAGI::Middleware::Session');
 $app->enable_csrf(secret => $SECRET);
 
 $app->get('/', handler => async sub ($c) {

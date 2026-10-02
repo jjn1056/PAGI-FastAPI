@@ -7,6 +7,7 @@ use experimental 'class';
 use PAGI::FastAPI::Response::SSE;
 use Future;
 use Future::AsyncAwait;
+use PAGI::Test::ConnectionState;
 
 class MockPagiSSEChannel {
     field $events_sent = [];
@@ -29,9 +30,15 @@ class MockPagiSSEChannel {
 subtest 'PAGI::SSE Dispatcher - Connection Initialization' => sub {
     my $mock_channel = MockPagiSSEChannel->new;
 
-    my $scope   = { type => 'sse', path => '/stream' };
+    # PAGI Www 0.6: the scope carries pagi.connection; sse.close completes it.
+    my $conn    = PAGI::Test::ConnectionState->new;
+    my $scope   = { type => 'sse', path => '/stream', 'pagi.connection' => $conn };
     my $receive = sub { $mock_channel->receive };
-    my $send    = sub ($evt) { $mock_channel->send($evt) };
+    my $send    = sub ($evt) {
+        my $sent = $mock_channel->send($evt);
+        $conn->_mark_complete if $evt->{type} eq 'sse.close';
+        return $sent;
+    };
 
     my $response = PAGI::FastAPI::Response::SSE->new(
         status    => 200,
@@ -66,9 +73,15 @@ subtest 'PAGI::SSE Dispatcher - Connection Initialization' => sub {
 subtest 'PAGI::SSE Features - JSON, Custom Events, and Keepalives' => sub {
     my $mock_channel = MockPagiSSEChannel->new;
 
-    my $scope   = { type => 'sse', path => '/live' };
+    # PAGI Www 0.6: the scope carries pagi.connection; sse.close completes it.
+    my $conn    = PAGI::Test::ConnectionState->new;
+    my $scope   = { type => 'sse', path => '/live', 'pagi.connection' => $conn };
     my $receive = sub { $mock_channel->receive };
-    my $send    = sub ($evt) { $mock_channel->send($evt) };
+    my $send    = sub ($evt) {
+        my $sent = $mock_channel->send($evt);
+        $conn->_mark_complete if $evt->{type} eq 'sse.close';
+        return $sent;
+    };
 
     my $response = PAGI::FastAPI::Response::SSE->new(
         generator => async sub ($sse) {
@@ -104,16 +117,23 @@ subtest 'PAGI::SSE Features - JSON, Custom Events, and Keepalives' => sub {
 subtest 'PAGI::SSE Cleanup & Error Handling' => sub {
     my $mock_channel = MockPagiSSEChannel->new;
 
-    my $scope   = { type => 'sse', path => '/stream' };
+    # PAGI Www 0.6: the scope carries pagi.connection; sse.close completes it.
+    my $conn    = PAGI::Test::ConnectionState->new;
+    my $scope   = { type => 'sse', path => '/stream', 'pagi.connection' => $conn };
     my $receive = sub { $mock_channel->receive };
-    my $send    = sub ($evt) { $mock_channel->send($evt) };
+    my $send    = sub ($evt) {
+        my $sent = $mock_channel->send($evt);
+        $conn->_mark_complete if $evt->{type} eq 'sse.close';
+        return $sent;
+    };
 
     my $cleanup_ran = 0;
 
     my $response = PAGI::FastAPI::Response::SSE->new(
         generator => async sub ($sse) {
             # Register close callback
-            $sse->on_close(sub ($s, $reason) {
+            # PAGI-Tools 0.002003 passes ($sse, $reason, $detail).
+            $sse->on_close(sub ($s, $reason, $detail = undef) {
                 $cleanup_ran = 1;
             });
 

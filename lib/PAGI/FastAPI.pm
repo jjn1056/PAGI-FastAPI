@@ -12,7 +12,7 @@ use Future;
 use JSON::PP qw(encode_json decode_json);
 use Scalar::Util qw(blessed);
 use PAGI::App::URLMap;
-use PAGI::Context;
+use PAGI::Response qw(text_response);
 use PAGI::WebSocket;
 use PAGI::Middleware::CORS;
 use PAGI::FastAPI::Context;
@@ -327,14 +327,12 @@ class PAGI::FastAPI {
                 }
             }
 
-            my $pagi_context = PAGI::Context->new($scope, $receive, $send);
             my $ctx = PAGI::FastAPI::Context->new(
                 query_params         => \%query_params,
                 body                 => $body_data,
                 form_data            => $form_data,
                 uploaded_files       => $uploaded_files,
                 scope                => $scope,
-                pagi_context         => $pagi_context,
                 background_registrar => sub ($future) { $self->_retain_background($future) },
             );
 
@@ -618,7 +616,7 @@ class PAGI::FastAPI {
         unless ($route) {
             $scope->{path_params} = {};
             my $ws = PAGI::WebSocket->new($scope, $receive, $send);
-            await $ws->close(4004, "Not Found");
+            await $self->_end_websocket($ws, 404, 4004, 'Not Found');
             return;
         }
 
@@ -636,7 +634,7 @@ class PAGI::FastAPI {
                 }
             }
             catch ($err) {
-                await $ws->close(1008, "Unauthorized: $err");
+                await $self->_end_websocket($ws, 403, 1008, "Unauthorized: $err");
                 return;
             }
         }
@@ -646,9 +644,19 @@ class PAGI::FastAPI {
             await $handler->($ws, $resolved_deps);
         }
         catch ($err) {
-            if (!$ws->is_closed) {
-                await $ws->close(1011, "Internal Server Error");
-            }
+            await $self->_end_websocket($ws, 500, 1011, 'Internal Server Error');
+        }
+    }
+
+    # Before the handshake is accepted the connection is still an HTTP
+    # exchange: it is refused with an HTTP status (PAGI Www 0.6 rejects a
+    # websocket.close there). After accept it is closed with a close code.
+    async method _end_websocket ($ws, $status, $close_code, $reason) {
+        if ($ws->connection_state eq 'connecting') {
+            await $ws->deny(text_response($reason, status => $status));
+        }
+        elsif (!$ws->is_closed) {
+            await $ws->close($close_code, $reason);
         }
     }
 
@@ -1242,7 +1250,7 @@ Returns C<$self> to allow method chaining.
 B<Example Usage:>
 
     # Pass class name with constructor options:
-    $app->add_middleware('PAGI::Middleware::Session', secret => 'my-secret');
+    $app->add_middleware('PAGI::Middleware::Session');
 
     # Pass an instantiated middleware object:
     my $mw = PAGI::Middleware::Logger->new(level => 'debug');

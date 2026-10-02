@@ -5,6 +5,7 @@ use Test::More;
 use Future::AsyncAwait;
 use JSON::PP qw(decode_json);
 use PAGI::FastAPI;
+use PAGI::Test::ConnectionState;
 
 my $app = PAGI::FastAPI->new(title => 'WebSocket Test App');
 
@@ -36,13 +37,30 @@ $app->websocket('/ws/chat/{room}',
 
 my $pagi_app = $app->to_app;
 
-subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
+# A hand-built websocket scope needs the pagi.connection object a PAGI Www
+# 0.6 server provides; a peer disconnect is recorded on it before the
+# application sees the event, as a server does.
+sub ws_scope ($path) {
+    my $conn = PAGI::Test::ConnectionState->new(websocket => 1);
     my $scope = {
-        type         => 'websocket',
-        path         => '/ws/echo',
-        query_string => '',
-        headers      => [],
+        type              => 'websocket',
+        path              => $path,
+        query_string      => '',
+        headers           => [],
+        'pagi.connection' => $conn,
     };
+    my $peer_closed = sub ($event) {
+        if ($event->{type} eq 'websocket.disconnect') {
+            $conn->_set_peer_close($event->{code} // 1005, $event->{reason} // '');
+            $conn->_mark_complete;
+        }
+        return $event;
+    };
+    return ($scope, $peer_closed);
+}
+
+subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
+    my ($scope, $peer_closed) = ws_scope('/ws/echo');
 
     # Queue of incoming client events
     my @incoming_events = (
@@ -53,7 +71,7 @@ subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
     my @sent_events;
 
     my $receive = async sub {
-        return shift @incoming_events;
+        return $peer_closed->(shift @incoming_events);
     };
 
     my $send = async sub ($event) {
@@ -70,12 +88,7 @@ subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
 };
 
 subtest 'WebSocket Route with Path Params, JSON Payload, and Handshake Close' => sub {
-    my $scope = {
-        type         => 'websocket',
-        path         => '/ws/chat/lobby',
-        query_string => '',
-        headers      => [],
-    };
+    my ($scope, $peer_closed) = ws_scope('/ws/chat/lobby');
 
     my @incoming_events = (
         { type => 'websocket.receive', text => '{"action":"ping"}' },
@@ -84,7 +97,7 @@ subtest 'WebSocket Route with Path Params, JSON Payload, and Handshake Close' =>
     my @sent_events;
 
     my $receive = async sub {
-        return shift @incoming_events // { type => 'websocket.disconnect', code => 1000 };
+        return $peer_closed->(shift @incoming_events // { type => 'websocket.disconnect', code => 1000 });
     };
 
     my $send = async sub ($event) {
@@ -105,26 +118,23 @@ subtest 'WebSocket Route with Path Params, JSON Payload, and Handshake Close' =>
     is $sent_events[2]->{code}, 1000, 'Close code 1000 sent';
 };
 
-subtest '4004 Close Code on Non-Existent Route' => sub {
-    my $scope = {
-        type         => 'websocket',
-        path         => '/ws/nonexistent',
-        query_string => '',
-        headers      => [],
-    };
+subtest 'Non-existent route refuses the handshake with HTTP 404' => sub {
+    my ($scope, $peer_closed) = ws_scope('/ws/nonexistent');
 
     my @sent_events;
 
-    my $receive = async sub { return { type => 'websocket.disconnect' } };
+    my $receive = async sub { return { type => 'websocket.connect' } };
     my $send    = async sub ($event) {
         push @sent_events, $event;
     };
 
     $pagi_app->($scope, $receive, $send)->get;
 
-    is scalar(@sent_events), 1, 'Only one event sent for unmatched route';
-    is $sent_events[0]->{type}, 'websocket.close', 'Close event issued on non-existent route';
-    is $sent_events[0]->{code}, 4004, 'Close code 4004 Not Found returned';
+    # PAGI Www 0.6: before accept the connection is still an HTTP exchange,
+    # so it is refused with an HTTP response; websocket.close is not allowed.
+    is $sent_events[0]->{type}, 'http.response.start', 'Handshake refused with an HTTP response';
+    is $sent_events[0]->{status}, 404, 'Status 404 Not Found';
+    ok !(grep { $_->{type} eq 'websocket.close' } @sent_events), 'No websocket.close before accept';
 };
 
 done_testing;

@@ -12,7 +12,7 @@ my $SECRET = 'app-level-secret-12345';
 
 subtest 'enable_csrf() falls back to the secret passed to new()' => sub {
     my $app = PAGI::FastAPI->new(secret => $SECRET);
-    $app->add_middleware('PAGI::Middleware::Session', secret => $SECRET);
+    $app->add_middleware('PAGI::Middleware::Session');
 
     is(exception { $app->enable_csrf() }, undef,
         'enable_csrf() does not die when new() was given a secret');
@@ -38,7 +38,7 @@ subtest 'enable_csrf() falls back to the secret passed to new()' => sub {
 
 subtest 'enable_csrf(secret => ...) still overrides the app-level secret' => sub {
     my $app = PAGI::FastAPI->new(secret => $SECRET);
-    $app->add_middleware('PAGI::Middleware::Session', secret => 'other-session-secret');
+    $app->add_middleware('PAGI::Middleware::Session');
     $app->enable_csrf(secret => 'call-level-secret');
 
     $app->get('/form', handler => async sub ($c) {
