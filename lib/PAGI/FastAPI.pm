@@ -279,7 +279,7 @@ class PAGI::FastAPI {
                     my $event = await $receive->();
                     if ($event->{type} eq 'http.request') {
                         $raw_body .= $event->{body} // '';
-                        last unless $event->{more_body};
+                        last unless $event->{more};
                     }
                     else {
                         last;
