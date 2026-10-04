@@ -616,7 +616,8 @@ class PAGI::FastAPI {
         unless ($route) {
             $scope->{path_params} = {};
             my $ws = PAGI::WebSocket->new($scope, $receive, $send);
-            await $self->_end_websocket($ws, 404, 4004, 'Not Found');
+            await $ws->close_or_deny(4004, 'Not Found',
+                response('Text', 'Not Found', status => 404));
             return;
         }
 
@@ -634,7 +635,8 @@ class PAGI::FastAPI {
                 }
             }
             catch ($err) {
-                await $self->_end_websocket($ws, 403, 1008, "Unauthorized: $err");
+                await $ws->close_or_deny(1008, "Unauthorized: $err",
+                    response('Text', "Unauthorized: $err", status => 403));
                 return;
             }
         }
@@ -644,19 +646,8 @@ class PAGI::FastAPI {
             await $handler->($ws, $resolved_deps);
         }
         catch ($err) {
-            await $self->_end_websocket($ws, 500, 1011, 'Internal Server Error');
-        }
-    }
-
-    # Before the handshake is accepted the connection is still an HTTP
-    # exchange: it is refused with an HTTP status (PAGI Www 0.6 rejects a
-    # websocket.close there). After accept it is closed with a close code.
-    async method _end_websocket ($ws, $status, $close_code, $reason) {
-        if ($ws->connection_state eq 'connecting') {
-            await $ws->deny(response('Text', $reason, status => $status));
-        }
-        elsif (!$ws->is_closed) {
-            await $ws->close($close_code, $reason);
+            await $ws->close_or_deny(1011, 'Internal Server Error',
+                response('Text', 'Internal Server Error', status => 500));
         }
     }
 

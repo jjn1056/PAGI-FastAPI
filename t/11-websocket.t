@@ -5,6 +5,7 @@ use Test::More;
 use Future::AsyncAwait;
 use JSON::PP qw(decode_json);
 use PAGI::FastAPI;
+use PAGI::FastAPI::Depends qw(Depends);
 use PAGI::Test::ConnectionState;
 
 my $app = PAGI::FastAPI->new(title => 'WebSocket Test App');
@@ -135,6 +136,62 @@ subtest 'Non-existent route refuses the handshake with HTTP 404' => sub {
     is $sent_events[0]->{type}, 'http.response.start', 'Handshake refused with an HTTP response';
     is $sent_events[0]->{status}, 404, 'Status 404 Not Found';
     ok !(grep { $_->{type} eq 'websocket.close' } @sent_events), 'No websocket.close before accept';
+};
+
+# Each way _handle_websocket ends a socket it did not hand to a handler.
+sub run_ws ($app, $path) {
+    my ($scope) = ws_scope($path);
+    my @sent;
+    my $receive = async sub { return { type => 'websocket.connect' } };
+    my $send    = async sub ($event) { push @sent, $event; return };
+    my $died;
+    eval { $app->to_app->($scope, $receive, $send)->get; 1 } or $died = $@;
+    return (\@sent, $died, $scope);
+}
+
+subtest 'A failing dependency refuses the handshake with HTTP 403' => sub {
+    my $app = PAGI::FastAPI->new;
+    $app->websocket('/ws/private',
+        dependencies => [ Depends(async sub ($ws) { die "no token\n" }, key => 'user') ],
+        handler => async sub ($ws, $deps) { await $ws->accept });
+    my ($sent, $died) = run_ws($app, '/ws/private');
+    is $died, undef, 'the application does not die';
+    is $sent->[0]{status}, 403, 'Status 403';
+    like $sent->[1]{body}, qr/\AUnauthorized: no token/, 'the body names the failure';
+    ok !(grep { $_->{type} eq 'websocket.close' } @$sent), 'No websocket.close before accept';
+};
+
+subtest 'A handler error before accept is an HTTP 500' => sub {
+    my $app = PAGI::FastAPI->new;
+    $app->websocket('/ws/broken', handler => async sub ($ws, $deps) { die "bug\n" });
+    my ($sent, $died) = run_ws($app, '/ws/broken');
+    is $died, undef, 'the application does not die';
+    is $sent->[0]{status}, 500, 'Status 500';
+};
+
+subtest 'A handler error after accept closes with 1011' => sub {
+    my $app = PAGI::FastAPI->new;
+    $app->websocket('/ws/broken-later', handler => async sub ($ws, $deps) {
+        await $ws->accept;
+        die "bug\n";
+    });
+    my ($sent, $died) = run_ws($app, '/ws/broken-later');
+    is $died, undef, 'the application does not die';
+    is_deeply [map { $_->{type} } @$sent], ['websocket.accept', 'websocket.close'], 'accept, then Close';
+    is_deeply [@{ $sent->[1] }{qw(code reason)}], [1011, 'Internal Server Error'], 'code 1011';
+};
+
+subtest 'A client that hangs up during a dependency: nothing is sent, nothing dies' => sub {
+    my $app = PAGI::FastAPI->new;
+    $app->websocket('/ws/slow',
+        dependencies => [ Depends(async sub ($ws) {
+            $ws->scope->{'pagi.connection'}->_mark_disconnected('client_closed');
+            die "no token\n";
+        }, key => 'user') ],
+        handler => async sub ($ws, $deps) { await $ws->accept });
+    my ($sent, $died) = run_ws($app, '/ws/slow');
+    is $died, undef, 'the application does not die';
+    is_deeply $sent, [], 'nothing is sent';
 };
 
 done_testing;
