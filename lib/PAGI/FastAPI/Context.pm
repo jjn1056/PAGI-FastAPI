@@ -70,7 +70,7 @@ class PAGI::FastAPI::Context {
 
         # The token PAGI::Middleware::CSRF put in the scope, compared in
         # constant time; false when there is none.
-        my $expected = ref $scope eq 'HASH' ? $scope->{csrf_token} : undef;
+        my $expected = ref $scope eq 'HASH' ? $scope->{'pagi.csrf_token'} : undef;
         return 0 unless defined $expected && !ref $expected && length $expected;
         require PAGI::CSRF;
         return PAGI::CSRF->new($scope)->verify($token);
@@ -335,7 +335,7 @@ B<Example Usage (Embedding in HTML forms):>
     my $is_valid = $c->csrf_verify($submitted_token);
 
 Explicitly validates the given C<$token> against the current request's CSRF
-state: the C<csrf_token> that L<PAGI::Middleware::CSRF> puts in the scope,
+state: the C<pagi.csrf_token> that L<PAGI::Middleware::CSRF> puts in the scope,
 compared in constant time (L<PAGI::CSRF>). If a C<pagi_context> object was
 passed to the constructor, its C<csrf_verify> is used instead.
 

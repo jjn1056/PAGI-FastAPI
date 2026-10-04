@@ -49,7 +49,7 @@ subtest 'csrf_verify() checks the scope token, or delegates to pagi_context' => 
     my $ctx_none = PAGI::FastAPI::Context->new();
     ok !$ctx_none->csrf_verify('any-token'), 'false when the request has no CSRF token';
 
-    my $ctx_scope = PAGI::FastAPI::Context->new(scope => { csrf_token => 'the-token' });
+    my $ctx_scope = PAGI::FastAPI::Context->new(scope => { 'pagi.csrf_token' => 'the-token' });
     ok $ctx_scope->csrf_verify('the-token'), 'true for the token PAGI::Middleware::CSRF put in the scope';
     ok !$ctx_scope->csrf_verify('other-token'), 'false for any other token';
 

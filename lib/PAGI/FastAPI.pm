@@ -105,7 +105,7 @@ class PAGI::FastAPI {
         my $mw = PAGI::Middleware::CSRF->new(
             secret  => $csrf_secret,
             secure  => 0,
-            invalid => response('JSON',
+            refuse  => response('JSON',
                 { detail => 'CSRF token validation failed' }, status => 403),
             %opts,
         );
@@ -1270,9 +1270,9 @@ By default, an unsafe request without an C<X-CSRF-Token> header matching the
 C<csrf_token> cookie is refused with C<403> and the JSON body
 C<{"detail": "CSRF token validation failed"}>, FastAPI's error shape, and the
 cookie is set with C<secure =E<gt> 0>. Any passed C<%options> override these
-defaults: C<invalid> replaces the refusal with any PAGI application, and
-C<invalid =E<gt> 0> lets every request through for the handler to check (see
-L<PAGI::Middleware::CSRF>).
+defaults: C<refuse> replaces the refusal with a Response, a C<($request)>
+handler or an app object, and C<refuse =E<gt> 0> lets every request through
+for the handler to check (see L<PAGI::Middleware::CSRF>).
 
 =over 4
 
