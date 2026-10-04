@@ -147,4 +147,47 @@ subtest 'PAGI::SSE Cleanup & Error Handling' => sub {
     ok($cleanup_ran, 'on_close lifecycle hook executed upon completion');
 };
 
+# A generator's failure while the client is still there is an application
+# error: it must reach the server, which ends the stream and logs it. A
+# client that left mid-stream is not one.
+sub dispatch_with ($generator, %opt) {
+    my $conn  = PAGI::Test::ConnectionState->new;
+    my $scope = { type => 'sse', path => '/stream', 'pagi.connection' => $conn };
+    my $client_leaves = Future->new;
+    my $receive = sub { $client_leaves->then(sub { Future->done({ type => 'sse.disconnect' }) }) };
+    my @sent;
+    my $send = sub ($evt) { push @sent, $evt->{type}; Future->done };
+    my $f = PAGI::FastAPI::Response::SSE->new(generator => $generator)
+        ->dispatch($scope, $receive, $send);
+    return ($f, \@sent, $conn);
+}
+
+subtest 'A generator that dies while the client is connected surfaces its error' => sub {
+    my ($f, $sent) = dispatch_with(async sub ($sse) {
+        await $sse->send_event(data => 'one');
+        die "generator bug\n";
+    });
+    ok($f->is_ready, 'dispatch does not leave the stream open');
+    is(($f->failure)[0], "generator bug\n", 'it fails with the generator\'s error');
+    is_deeply($sent, ['sse.start', 'sse.send'], 'the event before the error went out');
+};
+
+subtest 'A plain (non-async) generator gets the diagnostic' => sub {
+    my ($f) = dispatch_with(sub ($sse) { return 1 });
+    ok($f->is_ready, 'dispatch does not leave the stream open');
+    like(($f->failure)[0] // '', qr/SSE generator must be an 'async sub \(\$sse\)'/,
+        'the "did you forget async" message reaches the caller');
+};
+
+subtest 'A client that leaves mid-stream ends it quietly' => sub {
+    my ($f, $sent, $conn);
+    ($f, $sent, $conn) = dispatch_with(async sub ($sse) {
+        await $sse->send_event(data => 'one');
+        $sse->scope->{'pagi.connection'}->_mark_disconnected('client_closed');
+        await $sse->send_event(data => 'two');    # the client has gone
+    });
+    ok($f->is_ready, 'dispatch finishes');
+    ok(!$f->is_failed, 'without an error') or diag(($f->failure)[0]);
+};
+
 done_testing;

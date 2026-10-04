@@ -45,8 +45,12 @@ class PAGI::FastAPI::Response::SSE {
             }
             await $gen_result;
         };
+        # A generator that failed while the client is still there is an
+        # application error: let it reach the server, which ends the stream
+        # and logs it. Once the client has gone, its sends fail as a matter of
+        # course; that ends the stream quietly.
         if (my $err = $@) {
-            await $sse->_trigger_error($err);
+            die $err unless $sse->is_closed;
         }
 
         await $sse->run if !$sse->is_closed;
@@ -141,7 +145,10 @@ Integer HTTP status code for the initial handshake response. Defaults to C<200>.
 Executes the SSE response lifecycle against the low-level PAGI connection.
 This method initialises L<PAGI::SSE>, issues the initial C<sse.start> event
 with default and custom HTTP headers, runs the C<generator> callback, and
-waits on C<$sse->run> until client disconnect or stream closure.
+waits on C<$sse->run> until client disconnect or stream closure. If the
+generator dies while the client is still connected, C<dispatch> fails with
+that error, so the server ends the stream and logs it; if the client has
+already gone, the stream ends quietly.
 
 =head1 SEE ALSO
 
