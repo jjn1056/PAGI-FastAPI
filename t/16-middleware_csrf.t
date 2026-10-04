@@ -8,10 +8,9 @@ use PAGI::FastAPI;
 use PAGI::Test::Client;
 
 my $app    = PAGI::FastAPI->new();
-my $SECRET = 'test-csrf-secret-12345';
 
 $app->add_middleware('PAGI::Middleware::Session');
-$app->enable_csrf(secret => $SECRET);
+$app->enable_csrf();
 
 $app->get('/form', handler => async sub ($c) {
     my $token = $c->csrf_token() // '';

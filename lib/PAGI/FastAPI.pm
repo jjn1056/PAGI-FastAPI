@@ -97,13 +97,10 @@ class PAGI::FastAPI {
 
     method enable_csrf (%opts) {
         require PAGI::Middleware::CSRF;
-        my $csrf_secret = delete $opts{secret} // $secret
-            // die "CSRF middleware requires 'secret' option";
 
         # A failed check answers in FastAPI's error shape, {"detail": ...},
         # rather than the middleware's plain-text default.
         my $mw = PAGI::Middleware::CSRF->new(
-            secret  => $csrf_secret,
             secure  => 0,
             refuse  => response('JSON',
                 { detail => 'CSRF token validation failed' }, status => 403),
@@ -1116,10 +1113,9 @@ specification. Default: C<'PAGI::FastAPI Application'>.
 =item * C<version> - (Optional) Version string for the OpenAPI specification.
 Default: C<'$VERSION'>.
 
-=item * C<secret> - (Optional) Application-level secret scalar. Currently used
-as the default C<secret> for L</enable_csrf> when no C<secret> is passed to
-that call directly. Storing an app-wide secret here lets you avoid repeating
-it at every call site that needs it.
+=item * C<secret> - (Optional) Application-level secret scalar. Nothing in
+PAGI::FastAPI reads it at present: L</enable_csrf> no longer takes a secret,
+because L<PAGI::Middleware::CSRF>'s tokens are random and need none.
 
 =back
 
@@ -1276,17 +1272,13 @@ for the handler to check (see L<PAGI::Middleware::CSRF>).
 
 =over 4
 
-=item * C<secret> (Scalar, optional)
-
-The cryptographic secret key used to sign and verify CSRF tokens. If omitted
-from C<%options>, it falls back to the application-level C<secret> attribute
-set during L<PAGI::FastAPI> instantiation. Dies if no secret can be resolved
-from either location.
-
 =item * C<%options> (Hash, optional)
 
-Additional configuration arguments passed directly to L<PAGI::Middleware::CSRF/new>
-(such as C<cookie_name>, C<token_length>, or C<secure>).
+Configuration passed directly to L<PAGI::Middleware::CSRF/new>, such as
+C<cookie_name>, C<secure>, C<trusted_origins>, or C<session =E<gt> 1>, which
+keeps the token in the session (add L<PAGI::Middleware::Session> first) so a
+planted cookie cannot stand in for it. No secret is needed; passing
+C<secret> dies, as it does for the middleware.
 
 =back
 
@@ -1294,14 +1286,14 @@ Returns C<$self> to allow method chaining.
 
 B<Example Usage:>
 
-    # Uses application-level default secret:
-    my $app = PAGI::FastAPI->new(secret => 'master-app-secret');
+    my $app = PAGI::FastAPI->new;
     $app->enable_csrf();
 
-    # Custom secret and production settings:
+    # Production settings, with the token kept in the session:
+    $app->add_middleware('PAGI::Middleware::Session');
     $app->enable_csrf(
-        secret => 'csrf-specific-secret',
-        secure => 1,
+        session => 1,
+        secure  => 1,
     );
 
 =head2 C<add_cors(%options)>
@@ -1481,7 +1473,7 @@ Returns an async C<CODEREF> matching the PAGI interface C<< async sub ($scope, $
 B<Example Usage:>
 
     my $app = PAGI::FastAPI->new();
-    $app->enable_csrf(secret => 'my-secret');
+    $app->enable_csrf();
     $app->get('/health', handler => async sub ($c) { { status => 'ok' } });
 
     # Compile for server deployment or test runner
