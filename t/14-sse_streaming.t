@@ -132,7 +132,7 @@ subtest 'PAGI::SSE Cleanup & Error Handling' => sub {
     my $response = PAGI::FastAPI::Response::SSE->new(
         generator => async sub ($sse) {
             # Register close callback
-            # PAGI-Tools 0.002003 passes ($sse, $reason, $detail).
+            # PAGI-Tools 0.003000 passes ($sse, $reason, $detail).
             $sse->on_close(sub ($s, $reason, $detail = undef) {
                 $cleanup_ran = 1;
             });

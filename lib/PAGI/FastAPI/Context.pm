@@ -294,7 +294,7 @@ Gets or sets the HTTP status code for the response.
 
 Returns the object passed as C<pagi_context> to the constructor, if any.
 C<csrf_verify> delegates to it when present. PAGI::FastAPI itself no longer
-passes one: L<PAGI::Context> was removed from PAGI-Tools in 0.002003.
+passes one: L<PAGI::Context> was removed from PAGI-Tools in 0.003000.
 
 =head2 C<csrf_token>
 
