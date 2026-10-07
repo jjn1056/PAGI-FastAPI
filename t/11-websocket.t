@@ -40,7 +40,9 @@ my $pagi_app = $app->to_app;
 
 # A hand-built websocket scope needs the pagi.connection object a PAGI Www
 # 0.6 server provides; a peer disconnect is recorded on it before the
-# application sees the event, as a server does.
+# application sees the event, as a server does. An application's own Close
+# is answered at once, as a cooperative peer does, so the closing handshake
+# completes and the call -- which ends with the connection -- can finish.
 sub ws_scope ($path) {
     my $conn = PAGI::Test::ConnectionState->new(websocket => 1);
     my $scope = {
@@ -57,7 +59,14 @@ sub ws_scope ($path) {
         }
         return $event;
     };
-    return ($scope, $peer_closed);
+    my $answer_close = sub ($event) {
+        if ($event->{type} eq 'websocket.close' && $conn->is_connected) {
+            $conn->_set_peer_close($event->{code} // 1000, $event->{reason} // '');
+            $conn->_mark_complete;
+        }
+        return;
+    };
+    return ($scope, $peer_closed, $answer_close);
 }
 
 subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
@@ -89,7 +98,7 @@ subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
 };
 
 subtest 'WebSocket Route with Path Params, JSON Payload, and Handshake Close' => sub {
-    my ($scope, $peer_closed) = ws_scope('/ws/chat/lobby');
+    my ($scope, $peer_closed, $answer_close) = ws_scope('/ws/chat/lobby');
 
     my @incoming_events = (
         { type => 'websocket.receive', text => '{"action":"ping"}' },
@@ -103,6 +112,7 @@ subtest 'WebSocket Route with Path Params, JSON Payload, and Handshake Close' =>
 
     my $send = async sub ($event) {
         push @sent_events, $event;
+        $answer_close->($event);
     };
 
     $pagi_app->($scope, $receive, $send)->get;
@@ -140,10 +150,10 @@ subtest 'Non-existent route refuses the handshake with HTTP 404' => sub {
 
 # Each way _handle_websocket ends a socket it did not hand to a handler.
 sub run_ws ($app, $path) {
-    my ($scope) = ws_scope($path);
+    my ($scope, undef, $answer_close) = ws_scope($path);
     my @sent;
     my $receive = async sub { return { type => 'websocket.connect' } };
-    my $send    = async sub ($event) { push @sent, $event; return };
+    my $send    = async sub ($event) { push @sent, $event; $answer_close->($event); return };
     my $died;
     eval { $app->to_app->($scope, $receive, $send)->get; 1 } or $died = $@;
     return (\@sent, $died, $scope);

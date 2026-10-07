@@ -649,6 +649,10 @@ class PAGI::FastAPI {
             await $ws->close_or_deny(1011, 'Internal Server Error',
                 response('Text', 'Internal Server Error', status => 500));
         }
+        # The call ends with the connection and the handler's on_close
+        # cleanup, so a shutting-down server waits for it, and a failing
+        # on_close fails the call for the server to log.
+        await $ws->finished;
     }
 
     method _match_route ($method, $path) {

@@ -54,6 +54,9 @@ class PAGI::FastAPI::Response::SSE {
         }
 
         await $sse->run if !$sse->is_closed;
+        # The dispatch ends with the stream and its on_close cleanup; a
+        # failing on_close fails it for the server to log.
+        await $sse->finished;
     }
 }
 
