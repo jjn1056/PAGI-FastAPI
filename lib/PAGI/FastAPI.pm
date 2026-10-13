@@ -1257,13 +1257,30 @@ B<Example Usage:>
 Enables Cross-Site Request Forgery (CSRF) protection on the application by
 instantiating and attaching L<PAGI::Middleware::CSRF>.
 
-By default, an unsafe request without an C<X-CSRF-Token> header matching the
-C<csrf_token> cookie is refused with C<403> and the JSON body
-C<{"detail": "CSRF token validation failed"}>, FastAPI's error shape, and the
-cookie is set with C<secure =E<gt> 0>. Any passed C<%options> override these
-defaults: C<refuse> replaces the refusal with a Response, a C<($request)>
-handler or an app object, and C<refuse =E<gt> 0> lets every request through
-for the handler to check (see L<PAGI::Middleware::CSRF>).
+An unsafe request carries the token from the C<csrf_token> cookie in one of
+two places:
+
+=over 4
+
+=item * an C<X-CSRF-Token> header, for a script or a JSON client. A header
+that is sent decides, and the body is then not read.
+
+=item * when no header is sent, the C<csrf_token> field of an
+C<application/x-www-form-urlencoded> or C<multipart/form-data> body, for a
+plain HTML form (see L<PAGI::FastAPI::Context/csrf_token>). The handler still
+gets the whole form: C<< $c->form_data >> returns it.
+
+=back
+
+A JSON body is never read, so a JSON client sends the header. By default a
+request whose token is missing or wrong is refused with C<403> and the JSON
+body C<{"detail": "CSRF token validation failed"}>, FastAPI's error shape,
+and the cookie is set with C<secure =E<gt> 0>. Any passed C<%options>
+override these defaults: C<form_field> names another field, and
+C<form_field =E<gt> undef> accepts only the header; C<refuse> replaces the
+refusal with a Response, a C<($request)> handler or an app object, and
+C<refuse =E<gt> 0> lets every request through for the handler to check (see
+L<PAGI::Middleware::CSRF>).
 
 =over 4
 
